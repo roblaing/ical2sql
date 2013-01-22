@@ -1,0 +1,66 @@
+import sys
+
+def unquoted_string(quoted_text):
+    unquoted = quoted_text.replace('\,', ',')
+    unquoted = unquoted.replace('\;', ';')
+    unquoted = unquoted.replace('\\n', '\n')
+    unquoted = unquoted.replace('\\N', '\n')
+    unquoted = unquoted.replace('\\\\;', '\\')
+    return unquoted
+
+# do the unfolding in this step
+f = open(sys.argv[1], 'rU')
+data = f.readlines()
+f.close
+unfolded_data = [data[0].rstrip()]
+for line_number in range(1,len(data)):
+    if data[line_number][0] == ' ':
+        unfolded_data[-1] = unfolded_data[-1].rstrip() + data[line_number][1:]
+    else:
+        unfolded_data = unfolded_data + [data[line_number].rstrip()]
+
+# contentline   = name *(";" param ) ":" value CRLF
+# convert to tuple (name,param_dict,value)
+contentlines = [line.partition(':') for line in unfolded_data]
+new_contentlines = []
+for (name,colon,value) in contentlines:
+    params_dict = {}
+    params=name.split(';')
+    for i in range(1,len(params)):
+        param = params[i].split('=')
+        params_dict[param[0]] = param[1]
+    new_contentlines = new_contentlines + [(params[0],params_dict,value)]
+
+# get starts and ends of vevents
+vevent_begin = []
+vevent_end = []
+for i in range(len(new_contentlines)):
+    if (new_contentlines[i][0].upper() == "BEGIN") and (new_contentlines[i][2].upper() == "VEVENT"): vevent_begin.append(i)
+    elif (new_contentlines[i][0].upper() == "END") and (new_contentlines[i][2].upper() == "VEVENT"): vevent_end.append(i)
+
+# create list of vevent lists
+vevents = []
+for i in range(len(vevent_begin)):
+    vevents.append(new_contentlines[vevent_begin[i]+1:vevent_end[i]])
+
+# create an sql insert statement for each vevent element
+for i in range(len(vevents)):
+    event_dir = {}
+    for property in vevents[i]:
+        if property[0].upper() == "DTSTART":
+            event_dir["dtstart"] = property[2]
+        elif property[0].upper() == "LOCATION":
+            event_dir["location"] = unquoted_string(property[2])
+        elif property[0].upper() == "SUMMARY":
+            event_dir["summary"] = unquoted_string(property[2])
+        elif property[0].upper() == "DESCRIPTION":
+            event_dir["description"] = unquoted_string(property[2])
+    vevents[i] = event_dir
+
+f = open(sys.argv[2], 'w')
+for event in vevents:
+    f.write("DTSTART: " + event["dtstart"] +'\n')
+    f.write("SUMMARY: " + event["summary"] +'\n')
+    f.write("LOCATION: " + event["location"] + '\n')
+    f.write("DESCRIPTION:" + event["description"] + '\n')
+f.close
